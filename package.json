@@ -1,0 +1,13 @@
+{
+  "name": "notion-slack-automation-v2",
+  "version": "1.0.0",
+  "description": "Notion to Slack task automation - rebuilt from scratch",
+  "type": "module",
+  "dependencies": {
+    "@notionhq/client": "^2.2.3",
+    "@slack/web-api": "^6.9.0"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}
