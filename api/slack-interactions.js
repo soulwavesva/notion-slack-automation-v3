@@ -8,17 +8,41 @@ export default async function handler(req, res) {
   }
 
   try {
+    console.log('🔄 Slack interaction received');
+    console.log('Headers:', req.headers);
+    console.log('Body type:', typeof req.body);
+    console.log('Body:', req.body);
+
+    // Get the raw body for signature verification
+    let rawBody;
+    let payload;
+    
+    if (typeof req.body === 'string') {
+      rawBody = req.body;
+      // Parse URL-encoded payload
+      const params = new URLSearchParams(rawBody);
+      payload = JSON.parse(params.get('payload'));
+    } else if (req.body.payload) {
+      // Already parsed by Vercel
+      rawBody = `payload=${encodeURIComponent(req.body.payload)}`;
+      payload = typeof req.body.payload === 'string' ? JSON.parse(req.body.payload) : req.body.payload;
+    } else {
+      console.error('❌ Invalid payload format');
+      return res.status(400).json({ error: 'Invalid payload format' });
+    }
+
+    console.log('Parsed payload:', payload);
+
     // Verify Slack signature
     const signature = req.headers['x-slack-signature'];
     const timestamp = req.headers['x-slack-request-timestamp'];
-    const body = JSON.stringify(req.body);
     
-    if (!verifySlackSignature(signature, timestamp, body)) {
+    if (!verifySlackSignature(signature, timestamp, rawBody)) {
+      console.error('❌ Invalid Slack signature');
       return res.status(401).json({ error: 'Invalid signature' });
     }
 
-    // Parse the payload
-    const payload = JSON.parse(req.body.payload);
+    console.log('✅ Signature verified');
     
     if (payload.type === 'block_actions') {
       const action = payload.actions[0];
@@ -26,14 +50,17 @@ export default async function handler(req, res) {
       if (action.action_id === 'mark_done') {
         const taskId = action.value;
         const userId = payload.user.id;
+        const userName = payload.user.name;
         
-        console.log(`🎯 User ${userId} marked task ${taskId} as done`);
+        console.log(`🎯 User ${userName} (${userId}) marked task ${taskId} as done`);
         
         // Initialize clients
         const notion = new Client({ auth: process.env.NOTION_API_KEY });
         const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
         
         try {
+          console.log('📝 Updating Notion task...');
+          
           // Mark task as done in Notion
           await notion.pages.update({
             page_id: taskId,
@@ -44,11 +71,16 @@ export default async function handler(req, res) {
             }
           });
           
+          console.log('✅ Notion task updated');
+          console.log('🗑️ Deleting Slack message...');
+          
           // Delete the Slack message
           await slack.chat.delete({
             channel: payload.channel.id,
             ts: payload.message.ts
           });
+          
+          console.log('✅ Slack message deleted');
           
           // Send confirmation
           await slack.chat.postEphemeral({
@@ -57,19 +89,19 @@ export default async function handler(req, res) {
             text: '✅ Task marked as complete in Notion!'
           });
           
-          console.log(`✅ Task ${taskId} marked as done and message deleted`);
+          console.log(`✅ Task ${taskId} completed successfully`);
           
           // Post next available task for this person
           await postNextTaskForPerson(notion, slack, payload.message.text);
           
         } catch (error) {
-          console.error('Error marking task as done:', error);
+          console.error('❌ Error marking task as done:', error);
           
           // Send error message
           await slack.chat.postEphemeral({
             channel: payload.channel.id,
             user: userId,
-            text: '❌ Failed to mark task as done. Please try again or update in Notion directly.'
+            text: `❌ Failed to mark task as done: ${error.message}`
           });
         }
       }
@@ -78,8 +110,8 @@ export default async function handler(req, res) {
     res.status(200).json({ success: true });
     
   } catch (error) {
-    console.error('Slack interaction error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('❌ Slack interaction error:', error);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 }
 
@@ -137,6 +169,9 @@ async function getCurrentTaskCountForPerson(slack, personKey) {
 async function getNextTaskForPerson(notion, personKey) {
   try {
     const today = new Date().toISOString().split('T')[0];
+    const sevenDaysFromNow = new Date();
+    sevenDaysFromNow.setDate(new Date().getDate() + 7);
+    const sevenDaysStr = sevenDaysFromNow.toISOString().split('T')[0];
     
     // Get overdue tasks
     const overdueResponse = await notion.databases.query({
@@ -174,11 +209,36 @@ async function getNextTaskForPerson(notion, personKey) {
       sorts: [{ property: 'Due Date', direction: 'ascending' }]
     });
     
-    // Combine and process tasks
-    const allTasks = [...overdueResponse.results, ...dueTodayResponse.results];
+    // Get upcoming tasks (next 7 days)
+    const upcomingResponse = await notion.databases.query({
+      database_id: process.env.NOTION_DATABASE_ID,
+      filter: {
+        and: [
+          {
+            property: 'Checkbox',
+            checkbox: { equals: false }
+          },
+          {
+            property: 'Due Date',
+            date: { 
+              after: today,
+              on_or_before: sevenDaysStr
+            }
+          }
+        ]
+      },
+      sorts: [{ property: 'Due Date', direction: 'ascending' }]
+    });
+    
+    // Combine all tasks: overdue first, then due today, then upcoming
+    const allTasks = [
+      ...overdueResponse.results, 
+      ...dueTodayResponse.results,
+      ...upcomingResponse.results
+    ];
     
     // Find tasks for this person that aren't already in Slack
-    const currentSlackTasks = await getCurrentSlackTaskIds(notion);
+    const currentSlackTasks = await getCurrentSlackTaskIds(slack);
     
     for (const page of allTasks) {
       const task = {
@@ -187,7 +247,9 @@ async function getNextTaskForPerson(notion, personKey) {
         dueDate: extractDueDate(page),
         url: page.url,
         assignedTo: extractAssignedPerson(page),
-        isOverdue: page.properties['Due Date']?.date?.start < today
+        isOverdue: page.properties['Due Date']?.date?.start < today,
+        isDueToday: page.properties['Due Date']?.date?.start === today,
+        isUpcoming: page.properties['Due Date']?.date?.start > today
       };
       
       // Check if this task is for the right person and not already posted
@@ -275,15 +337,34 @@ async function postTaskToSlack(slack, task) {
   const today = new Date().toISOString().split('T')[0];
   
   let dueDateText = `📅 Due: ${dueDate}`;
+  let buttonStyle = 'primary'; // Default green button
+  
   if (task.dueDate) {
     if (task.dueDate < today) {
       dueDateText = `🔴 *overdue*: ${dueDate}`;
+      buttonStyle = 'danger'; // Red button for overdue
     } else if (task.dueDate === today) {
       dueDateText = `🟡 *due today*: ${dueDate}`;
+      buttonStyle = 'primary'; // Green button for due today
+    } else {
+      dueDateText = `📅 *upcoming*: ${dueDate}`;
+      buttonStyle = undefined; // Transparent/default button for upcoming
     }
   }
   
   const assignedText = task.assignedTo ? `${task.assignedTo.emoji} *${task.assignedTo.name}*` : '❓ *UNASSIGNED*';
+  
+  const buttonBlock = {
+    type: 'button',
+    text: { type: 'plain_text', text: '✅ Done' },
+    action_id: 'mark_done',
+    value: task.id
+  };
+  
+  // Only add style if it's defined (upcoming tasks get default/transparent style)
+  if (buttonStyle) {
+    buttonBlock.style = buttonStyle;
+  }
   
   await slack.chat.postMessage({
     channel: process.env.SLACK_CHANNEL_ID,
@@ -295,13 +376,7 @@ async function postTaskToSlack(slack, task) {
           type: 'mrkdwn',
           text: `${assignedText} 📌 *${task.title}*\n${dueDateText}`
         },
-        accessory: {
-          type: 'button',
-          text: { type: 'plain_text', text: '✅ Done' },
-          style: 'primary',
-          action_id: 'mark_done',
-          value: task.id
-        }
+        accessory: buttonBlock
       },
       {
         type: 'context',
@@ -310,7 +385,7 @@ async function postTaskToSlack(slack, task) {
     ]
   });
   
-  console.log(`📤 Posted task: "${task.title}" for ${task.assignedTo?.name || 'UNASSIGNED'}`);
+  console.log(`📤 Posted next task: "${task.title}" for ${task.assignedTo?.name || 'UNASSIGNED'}`);
 }
 
 function verifySlackSignature(signature, timestamp, body) {
