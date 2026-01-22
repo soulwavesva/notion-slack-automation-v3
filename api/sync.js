@@ -110,6 +110,15 @@ export default async function handler(req, res) {
       }
     }
     
+    // Debug: Log task distribution
+    console.log('📊 Task distribution:');
+    for (const [person, tasks] of Object.entries(tasksByPerson)) {
+      console.log(`  ${person}: ${tasks.length} tasks`);
+      tasks.forEach((task, index) => {
+        console.log(`    ${index + 1}. "${task.title}" (${task.dueDate})`);
+      });
+    }
+    
     // Sort tasks within each person: overdue first, then due today, then upcoming
     for (const [person, tasks] of Object.entries(tasksByPerson)) {
       tasks.sort((a, b) => {
@@ -134,11 +143,19 @@ export default async function handler(req, res) {
     // Sort all tasks by person first, then by priority within each person
     const sortedPersons = ['ROB', 'SAM', 'ANNA', 'UNASSIGNED'];
     
+    console.log('📤 Starting to post tasks...');
+    
     for (const person of sortedPersons) {
-      if (totalTasksPosted >= maxTotalTasks) break;
+      if (totalTasksPosted >= maxTotalTasks) {
+        console.log(`⚠️ Reached max tasks (${maxTotalTasks}), stopping`);
+        break;
+      }
       
       const tasks = tasksByPerson[person] || [];
-      if (tasks.length === 0) continue;
+      if (tasks.length === 0) {
+        console.log(`ℹ️ No tasks for ${person}`);
+        continue;
+      }
       
       // For assigned persons, limit to 3 tasks each
       // For unassigned, take remaining slots
@@ -146,14 +163,20 @@ export default async function handler(req, res) {
       if (person === 'UNASSIGNED') {
         const remainingSlots = maxTotalTasks - totalTasksPosted;
         tasksToPost = tasks.slice(0, remainingSlots);
+        console.log(`📋 ${person}: ${remainingSlots} remaining slots, posting ${tasksToPost.length} tasks`);
       } else {
         tasksToPost = tasks.slice(0, 3);
+        console.log(`📋 ${person}: posting ${tasksToPost.length} of ${tasks.length} available tasks`);
       }
       
       for (const task of tasksToPost) {
-        if (totalTasksPosted >= maxTotalTasks) break;
+        if (totalTasksPosted >= maxTotalTasks) {
+          console.log(`⚠️ Reached max tasks (${maxTotalTasks}) during posting, stopping`);
+          break;
+        }
         
         try {
+          console.log(`📤 Posting: "${task.title}" for ${person}`);
           await postTaskToSlack(slack, task);
           postedTasks.push({ 
             person, 
@@ -171,6 +194,8 @@ export default async function handler(req, res) {
         }
       }
     }
+    
+    console.log(`✅ Posted ${totalTasksPosted} tasks total`);
     
     console.log(`✅ Posted ${postedTasks.length} tasks to Slack`);
     
