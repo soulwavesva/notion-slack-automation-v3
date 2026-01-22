@@ -125,25 +125,47 @@ async function postNextTaskForPerson(notion, slack, completedTaskText) {
       return;
     }
     
-    // Get next available task for this person
+    // First, try to find a task specifically for this person
     const nextTask = await getNextTaskForPerson(notion, slack, personKey);
     
     if (nextTask) {
       console.log(`📤 Found next task for ${personKey}: "${nextTask.title}"`);
       await postTaskToSlack(slack, nextTask);
       console.log(`✅ Posted next task for ${personKey}: "${nextTask.title}"`);
-    } else {
-      console.log(`ℹ️ No more tasks available for ${personKey}`);
+      return;
+    }
+    
+    console.log(`ℹ️ No more tasks available for ${personKey}`);
+    
+    // If no task for this specific person, try to find tasks for other people who have < 3 tasks
+    const allPersons = ['ROB', 'SAM', 'ANNA'];
+    
+    for (const otherPerson of allPersons) {
+      if (otherPerson === personKey) continue; // Skip the person who just completed a task
       
-      // Try to find any unassigned task to fill the slot
-      const unassignedTask = await getNextTaskForPerson(notion, slack, 'UNASSIGNED');
-      if (unassignedTask) {
-        console.log(`📤 Found unassigned task to fill slot: "${unassignedTask.title}"`);
-        await postTaskToSlack(slack, unassignedTask);
-        console.log(`✅ Posted unassigned task: "${unassignedTask.title}"`);
-      } else {
-        console.log(`ℹ️ No unassigned tasks available either`);
+      const otherPersonCount = await getCurrentTaskCountForPerson(slack, otherPerson);
+      console.log(`📊 Current task count for ${otherPerson}: ${otherPersonCount}`);
+      
+      if (otherPersonCount < 3) {
+        const otherPersonTask = await getNextTaskForPerson(notion, slack, otherPerson);
+        if (otherPersonTask) {
+          console.log(`📤 Found task for ${otherPerson}: "${otherPersonTask.title}"`);
+          await postTaskToSlack(slack, otherPersonTask);
+          console.log(`✅ Posted task for ${otherPerson}: "${otherPersonTask.title}"`);
+          return;
+        }
       }
+    }
+    
+    // Only if no assigned tasks are available, try unassigned tasks
+    console.log(`🔍 No assigned tasks available, checking unassigned tasks...`);
+    const unassignedTask = await getNextTaskForPerson(notion, slack, 'UNASSIGNED');
+    if (unassignedTask) {
+      console.log(`📤 Found unassigned task to fill slot: "${unassignedTask.title}"`);
+      await postTaskToSlack(slack, unassignedTask);
+      console.log(`✅ Posted unassigned task: "${unassignedTask.title}"`);
+    } else {
+      console.log(`ℹ️ No tasks available at all`);
     }
     
   } catch (error) {
