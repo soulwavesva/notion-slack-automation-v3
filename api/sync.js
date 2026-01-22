@@ -21,7 +21,7 @@ export default async function handler(req, res) {
     sevenDaysFromNow.setDate(today.getDate() + 7);
     const sevenDaysStr = sevenDaysFromNow.toISOString().split('T')[0];
     
-    // Fetch overdue and due today tasks
+    // Fetch overdue and due today tasks (priority)
     const overdueResponse = await notion.databases.query({
       database_id: process.env.NOTION_DATABASE_ID,
       filter: {
@@ -57,10 +57,35 @@ export default async function handler(req, res) {
       sorts: [{ property: 'Due Date', direction: 'ascending' }]
     });
     
-    // Combine and sort all urgent tasks (overdue first, then due today)
-    const allTasks = [...overdueResponse.results, ...dueTodayResponse.results];
+    // Fetch upcoming tasks (next 7 days) to fill remaining slots
+    const upcomingResponse = await notion.databases.query({
+      database_id: process.env.NOTION_DATABASE_ID,
+      filter: {
+        and: [
+          {
+            property: 'Checkbox',
+            checkbox: { equals: false }
+          },
+          {
+            property: 'Due Date',
+            date: { 
+              after: todayStr,
+              on_or_before: sevenDaysStr
+            }
+          }
+        ]
+      },
+      sorts: [{ property: 'Due Date', direction: 'ascending' }]
+    });
     
-    console.log(`Found ${allTasks.length} urgent tasks (${overdueResponse.results.length} overdue, ${dueTodayResponse.results.length} due today)`);
+    // Combine all tasks: overdue first, then due today, then upcoming
+    const allTasks = [
+      ...overdueResponse.results,
+      ...dueTodayResponse.results,
+      ...upcomingResponse.results
+    ];
+    
+    console.log(`Found ${overdueResponse.results.length} overdue, ${dueTodayResponse.results.length} due today, ${upcomingResponse.results.length} upcoming tasks`);
     
     // Process tasks and organize by person
     const tasksByPerson = { ROB: [], SAM: [], ANNA: [], UNASSIGNED: [] };
@@ -72,7 +97,9 @@ export default async function handler(req, res) {
         dueDate: extractDueDate(page),
         url: page.url,
         assignedTo: extractAssignedPerson(page),
-        isOverdue: page.properties['Due Date']?.date?.start < todayStr
+        isOverdue: page.properties['Due Date']?.date?.start < todayStr,
+        isDueToday: page.properties['Due Date']?.date?.start === todayStr,
+        isUpcoming: page.properties['Due Date']?.date?.start > todayStr
       };
       
       const personKey = task.assignedTo?.key || 'UNASSIGNED';
@@ -83,24 +110,39 @@ export default async function handler(req, res) {
       }
     }
     
-    // Post up to 3 tasks per person (9 total), prioritizing overdue tasks
+    // Sort tasks within each person: overdue first, then due today, then upcoming
+    for (const [person, tasks] of Object.entries(tasksByPerson)) {
+      tasks.sort((a, b) => {
+        // Overdue tasks first
+        if (a.isOverdue && !b.isOverdue) return -1;
+        if (!a.isOverdue && b.isOverdue) return 1;
+        
+        // Then due today tasks
+        if (a.isDueToday && !b.isDueToday) return -1;
+        if (!a.isDueToday && b.isDueToday) return 1;
+        
+        // Then by due date
+        return new Date(a.dueDate) - new Date(b.dueDate);
+      });
+    }
+    
+    // Post up to 3 tasks per person (9 total), filling with upcoming tasks if needed
     const postedTasks = [];
     for (const [person, tasks] of Object.entries(tasksByPerson)) {
       if (tasks.length === 0) continue;
       
-      // Sort tasks: overdue first, then by due date
-      tasks.sort((a, b) => {
-        if (a.isOverdue && !b.isOverdue) return -1;
-        if (!a.isOverdue && b.isOverdue) return 1;
-        return new Date(a.dueDate) - new Date(b.dueDate);
-      });
-      
-      const tasksToPost = tasks.slice(0, 3);
+      const tasksToPost = tasks.slice(0, 3); // Take up to 3 tasks per person
       
       for (const task of tasksToPost) {
         try {
           await postTaskToSlack(slack, task);
-          postedTasks.push({ person, title: task.title, isOverdue: task.isOverdue });
+          postedTasks.push({ 
+            person, 
+            title: task.title, 
+            isOverdue: task.isOverdue,
+            isDueToday: task.isDueToday,
+            isUpcoming: task.isUpcoming
+          });
           
           // Small delay to avoid rate limits
           await new Promise(resolve => setTimeout(resolve, 100));
@@ -123,7 +165,8 @@ export default async function handler(req, res) {
         UNASSIGNED: postedTasks.filter(t => t.person === 'UNASSIGNED').length
       },
       overdueTasks: postedTasks.filter(t => t.isOverdue).length,
-      dueTodayTasks: postedTasks.filter(t => !t.isOverdue).length,
+      dueTodayTasks: postedTasks.filter(t => t.isDueToday).length,
+      upcomingTasks: postedTasks.filter(t => t.isUpcoming).length,
       timestamp: new Date().toISOString()
     });
     
@@ -219,6 +262,8 @@ async function postTaskToSlack(slack, task) {
       dueDateText = `🔴 *overdue*: ${dueDate}`;
     } else if (task.dueDate === today) {
       dueDateText = `🟡 *due today*: ${dueDate}`;
+    } else {
+      dueDateText = `📅 *upcoming*: ${dueDate}`;
     }
   }
   
