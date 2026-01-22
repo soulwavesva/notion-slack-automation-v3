@@ -109,14 +109,16 @@ async function postNextTaskForPerson(notion, slack, completedTaskText) {
   try {
     // Determine which person completed the task
     let personKey = 'UNASSIGNED';
-    if (completedTaskText.includes('ROB')) personKey = 'ROB';
-    else if (completedTaskText.includes('SAM')) personKey = 'SAM';
-    else if (completedTaskText.includes('ANNA')) personKey = 'ANNA';
+    if (completedTaskText && completedTaskText.includes('ROB')) personKey = 'ROB';
+    else if (completedTaskText && completedTaskText.includes('SAM')) personKey = 'SAM';
+    else if (completedTaskText && completedTaskText.includes('ANNA')) personKey = 'ANNA';
     
     console.log(`🔍 Looking for next task for ${personKey}`);
+    console.log(`📝 Completed task text: "${completedTaskText}"`);
     
     // Get current task count for this person
     const currentCount = await getCurrentTaskCountForPerson(slack, personKey);
+    console.log(`📊 Current task count for ${personKey}: ${currentCount}`);
     
     if (currentCount >= 3) {
       console.log(`⚠️ ${personKey} already has 3 tasks, not posting more`);
@@ -124,17 +126,28 @@ async function postNextTaskForPerson(notion, slack, completedTaskText) {
     }
     
     // Get next available task for this person
-    const nextTask = await getNextTaskForPerson(notion, personKey);
+    const nextTask = await getNextTaskForPerson(notion, slack, personKey);
     
     if (nextTask) {
+      console.log(`📤 Found next task for ${personKey}: "${nextTask.title}"`);
       await postTaskToSlack(slack, nextTask);
-      console.log(`📤 Posted next task for ${personKey}: "${nextTask.title}"`);
+      console.log(`✅ Posted next task for ${personKey}: "${nextTask.title}"`);
     } else {
-      console.log(`✅ No more urgent tasks available for ${personKey}`);
+      console.log(`ℹ️ No more tasks available for ${personKey}`);
+      
+      // Try to find any unassigned task to fill the slot
+      const unassignedTask = await getNextTaskForPerson(notion, slack, 'UNASSIGNED');
+      if (unassignedTask) {
+        console.log(`📤 Found unassigned task to fill slot: "${unassignedTask.title}"`);
+        await postTaskToSlack(slack, unassignedTask);
+        console.log(`✅ Posted unassigned task: "${unassignedTask.title}"`);
+      } else {
+        console.log(`ℹ️ No unassigned tasks available either`);
+      }
     }
     
   } catch (error) {
-    console.error('Error posting next task:', error);
+    console.error('❌ Error posting next task:', error);
   }
 }
 
@@ -156,12 +169,14 @@ async function getCurrentTaskCountForPerson(slack, personKey) {
   }
 }
 
-async function getNextTaskForPerson(notion, personKey) {
+async function getNextTaskForPerson(notion, slack, personKey) {
   try {
     const today = new Date().toISOString().split('T')[0];
     const sevenDaysFromNow = new Date();
     sevenDaysFromNow.setDate(new Date().getDate() + 7);
     const sevenDaysStr = sevenDaysFromNow.toISOString().split('T')[0];
+    
+    console.log(`🔍 Searching for tasks for ${personKey} from ${today} to ${sevenDaysStr}`);
     
     // Get overdue tasks
     const overdueResponse = await notion.databases.query({
@@ -227,8 +242,11 @@ async function getNextTaskForPerson(notion, personKey) {
       ...upcomingResponse.results
     ];
     
+    console.log(`📊 Found ${allTasks.length} total available tasks`);
+    
     // Find tasks for this person that aren't already in Slack
     const currentSlackTasks = await getCurrentSlackTaskIds(slack);
+    console.log(`📊 Current Slack task IDs: ${currentSlackTasks.length} tasks`);
     
     for (const page of allTasks) {
       const task = {
@@ -242,16 +260,26 @@ async function getNextTaskForPerson(notion, personKey) {
         isUpcoming: page.properties['Due Date']?.date?.start > today
       };
       
+      console.log(`🔍 Checking task "${task.title}" assigned to ${task.assignedTo?.key || 'UNASSIGNED'}`);
+      
       // Check if this task is for the right person and not already posted
-      if (task.assignedTo?.key === personKey && !currentSlackTasks.includes(task.id)) {
+      const isRightPerson = task.assignedTo?.key === personKey;
+      const notAlreadyPosted = !currentSlackTasks.includes(task.id);
+      
+      console.log(`   - Right person (${personKey}): ${isRightPerson}`);
+      console.log(`   - Not already posted: ${notAlreadyPosted}`);
+      
+      if (isRightPerson && notAlreadyPosted) {
+        console.log(`✅ Found next task: "${task.title}" for ${personKey}`);
         return task;
       }
     }
     
+    console.log(`❌ No available tasks found for ${personKey}`);
     return null;
     
   } catch (error) {
-    console.error('Error getting next task:', error);
+    console.error('❌ Error getting next task:', error);
     return null;
   }
 }
