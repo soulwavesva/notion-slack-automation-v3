@@ -382,7 +382,7 @@ async function postTaskToSlack(slack, task) {
   if (task.dueDate) {
     if (task.dueDate < today) {
       dueDateText = `🔴 *overdue*: ${dueDate}`;
-      buttonStyle = 'danger'; // Red button for overdue
+      buttonStyle = 'primary'; // Green button for overdue (changed from danger)
     } else if (task.dueDate === today) {
       dueDateText = `🟡 *due today*: ${dueDate}`;
       buttonStyle = 'primary'; // Green button for due today

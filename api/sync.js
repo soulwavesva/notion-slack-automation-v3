@@ -131,12 +131,24 @@ export default async function handler(req, res) {
     let totalTasksPosted = 0;
     const maxTotalTasks = 9;
     
-    // First pass: Post assigned tasks (up to 3 per person)
-    for (const [person, tasks] of Object.entries(tasksByPerson)) {
-      if (person === 'UNASSIGNED' || tasks.length === 0) continue;
+    // Sort all tasks by person first, then by priority within each person
+    const sortedPersons = ['ROB', 'SAM', 'ANNA', 'UNASSIGNED'];
+    
+    for (const person of sortedPersons) {
       if (totalTasksPosted >= maxTotalTasks) break;
       
-      const tasksToPost = tasks.slice(0, 3);
+      const tasks = tasksByPerson[person] || [];
+      if (tasks.length === 0) continue;
+      
+      // For assigned persons, limit to 3 tasks each
+      // For unassigned, take remaining slots
+      let tasksToPost;
+      if (person === 'UNASSIGNED') {
+        const remainingSlots = maxTotalTasks - totalTasksPosted;
+        tasksToPost = tasks.slice(0, remainingSlots);
+      } else {
+        tasksToPost = tasks.slice(0, 3);
+      }
       
       for (const task of tasksToPost) {
         if (totalTasksPosted >= maxTotalTasks) break;
@@ -145,33 +157,6 @@ export default async function handler(req, res) {
           await postTaskToSlack(slack, task);
           postedTasks.push({ 
             person, 
-            title: task.title, 
-            isOverdue: task.isOverdue,
-            isDueToday: task.isDueToday,
-            isUpcoming: task.isUpcoming
-          });
-          totalTasksPosted++;
-          
-          // Small delay to avoid rate limits
-          await new Promise(resolve => setTimeout(resolve, 100));
-        } catch (error) {
-          console.error(`Failed to post task: ${task.title}`, error);
-        }
-      }
-    }
-    
-    // Second pass: Fill remaining slots with unassigned tasks (if any space left)
-    if (totalTasksPosted < maxTotalTasks && tasksByPerson.UNASSIGNED.length > 0) {
-      const remainingSlots = maxTotalTasks - totalTasksPosted;
-      const unassignedTasksToPost = tasksByPerson.UNASSIGNED.slice(0, remainingSlots);
-      
-      for (const task of unassignedTasksToPost) {
-        if (totalTasksPosted >= maxTotalTasks) break;
-        
-        try {
-          await postTaskToSlack(slack, task);
-          postedTasks.push({ 
-            person: 'UNASSIGNED', 
             title: task.title, 
             isOverdue: task.isOverdue,
             isDueToday: task.isDueToday,
@@ -297,7 +282,7 @@ async function postTaskToSlack(slack, task) {
   if (task.dueDate) {
     if (task.dueDate < today) {
       dueDateText = `🔴 *overdue*: ${dueDate}`;
-      buttonStyle = 'danger'; // Red button for overdue
+      buttonStyle = 'primary'; // Green button for overdue (changed from danger)
     } else if (task.dueDate === today) {
       dueDateText = `🟡 *due today*: ${dueDate}`;
       buttonStyle = 'primary'; // Green button for due today
