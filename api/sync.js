@@ -21,6 +21,8 @@ export default async function handler(req, res) {
     fiveDaysFromNow.setDate(today.getDate() + 5);
     const fiveDaysStr = fiveDaysFromNow.toISOString().split('T')[0];
     
+    console.log(`📅 Date range: Today=${todayStr}, 5 days from now=${fiveDaysStr}`);
+    
     // Fetch overdue and due today tasks (priority)
     const overdueResponse = await notion.databases.query({
       database_id: process.env.NOTION_DATABASE_ID,
@@ -57,7 +59,7 @@ export default async function handler(req, res) {
       sorts: [{ property: 'Due Date', direction: 'ascending' }]
     });
     
-    // Fetch upcoming tasks (next 7 days) to fill remaining slots
+    // Fetch upcoming tasks (next 5 days only)
     const upcomingResponse = await notion.databases.query({
       database_id: process.env.NOTION_DATABASE_ID,
       filter: {
@@ -85,7 +87,17 @@ export default async function handler(req, res) {
       ...upcomingResponse.results
     ];
     
-    console.log(`Found ${overdueResponse.results.length} overdue, ${dueTodayResponse.results.length} due today, ${upcomingResponse.results.length} upcoming tasks`);
+    console.log(`Found ${overdueResponse.results.length} overdue, ${dueTodayResponse.results.length} due today, ${upcomingResponse.results.length} upcoming (within 5 days) tasks`);
+    
+    // Debug: Show the actual dates of upcoming tasks
+    if (upcomingResponse.results.length > 0) {
+      console.log('📅 Upcoming task dates:');
+      upcomingResponse.results.forEach(page => {
+        const title = extractTitle(page);
+        const dueDate = extractDueDate(page);
+        console.log(`  - "${title}": ${dueDate}`);
+      });
+    }
     
     // Process tasks and organize by person
     const tasksByPerson = { ROB: [], SAM: [], ANNA: [], UNASSIGNED: [] };
