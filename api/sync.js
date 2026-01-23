@@ -105,9 +105,9 @@ export default async function handler(req, res) {
     for (const page of allTasks) {
       const dueDate = extractDueDate(page);
       
-      // CLIENT-SIDE FILTER: Skip tasks beyond 5 days
-      if (dueDate && dueDate > fiveDaysStr) {
-        console.log(`⚠️ Skipping task beyond 5 days: "${extractTitle(page)}" (${dueDate})`);
+      // CLIENT-SIDE FILTER: Skip tasks beyond 5 days (compare as dates)
+      if (dueDate && new Date(dueDate) > new Date(fiveDaysStr)) {
+        console.log(`⚠️ Skipping task beyond 5 days: "${extractTitle(page)}" (${dueDate}) - beyond ${fiveDaysStr}`);
         continue;
       }
       
