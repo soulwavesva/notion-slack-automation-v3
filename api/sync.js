@@ -16,10 +16,10 @@ export default async function handler(req, res) {
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
     
-    // Get 7 days from now for upcoming tasks
-    const sevenDaysFromNow = new Date();
-    sevenDaysFromNow.setDate(today.getDate() + 7);
-    const sevenDaysStr = sevenDaysFromNow.toISOString().split('T')[0];
+    // Get 5 days from now for upcoming tasks (reduced from 7 days)
+    const fiveDaysFromNow = new Date();
+    fiveDaysFromNow.setDate(today.getDate() + 5);
+    const fiveDaysStr = fiveDaysFromNow.toISOString().split('T')[0];
     
     // Fetch overdue and due today tasks (priority)
     const overdueResponse = await notion.databases.query({
@@ -70,7 +70,7 @@ export default async function handler(req, res) {
             property: 'Due Date',
             date: { 
               after: todayStr,
-              on_or_before: sevenDaysStr
+              on_or_before: fiveDaysStr
             }
           }
         ]

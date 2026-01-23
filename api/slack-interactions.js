@@ -72,12 +72,7 @@ export default async function handler(req, res) {
           
           console.log('✅ Slack message deleted');
           
-          // Send confirmation
-          await slack.chat.postEphemeral({
-            channel: payload.channel.id,
-            user: userId,
-            text: '✅ Task marked as complete in Notion!'
-          });
+          // No confirmation message - removed to reduce noise
           
           console.log(`✅ Task ${taskId} completed successfully`);
           
@@ -194,11 +189,11 @@ async function getCurrentTaskCountForPerson(slack, personKey) {
 async function getNextTaskForPerson(notion, slack, personKey) {
   try {
     const today = new Date().toISOString().split('T')[0];
-    const sevenDaysFromNow = new Date();
-    sevenDaysFromNow.setDate(new Date().getDate() + 7);
-    const sevenDaysStr = sevenDaysFromNow.toISOString().split('T')[0];
+    const fiveDaysFromNow = new Date();
+    fiveDaysFromNow.setDate(new Date().getDate() + 5);
+    const fiveDaysStr = fiveDaysFromNow.toISOString().split('T')[0];
     
-    console.log(`🔍 Searching for tasks for ${personKey} from ${today} to ${sevenDaysStr}`);
+    console.log(`🔍 Searching for tasks for ${personKey} from ${today} to ${fiveDaysStr}`);
     
     // Get overdue tasks
     const overdueResponse = await notion.databases.query({
@@ -236,7 +231,7 @@ async function getNextTaskForPerson(notion, slack, personKey) {
       sorts: [{ property: 'Due Date', direction: 'ascending' }]
     });
     
-    // Get upcoming tasks (next 7 days)
+    // Get upcoming tasks (next 5 days)
     const upcomingResponse = await notion.databases.query({
       database_id: process.env.NOTION_DATABASE_ID,
       filter: {
@@ -249,7 +244,7 @@ async function getNextTaskForPerson(notion, slack, personKey) {
             property: 'Due Date',
             date: { 
               after: today,
-              on_or_before: sevenDaysStr
+              on_or_before: fiveDaysStr
             }
           }
         ]
