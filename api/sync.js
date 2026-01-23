@@ -23,7 +23,7 @@ export default async function handler(req, res) {
     
     console.log(`📅 Date range: Today=${todayStr}, 5 days from now=${fiveDaysStr}`);
     
-    // Fetch overdue and due today tasks (priority)
+    // Fetch overdue tasks (priority)
     const overdueResponse = await notion.databases.query({
       database_id: process.env.NOTION_DATABASE_ID,
       filter: {
@@ -99,19 +99,27 @@ export default async function handler(req, res) {
       });
     }
     
-    // Process tasks and organize by person
+    // Process tasks and organize by person - FILTER OUT TASKS BEYOND 5 DAYS
     const tasksByPerson = { ROB: [], SAM: [], ANNA: [], UNASSIGNED: [] };
     
     for (const page of allTasks) {
+      const dueDate = extractDueDate(page);
+      
+      // CLIENT-SIDE FILTER: Skip tasks beyond 5 days
+      if (dueDate && dueDate > fiveDaysStr) {
+        console.log(`⚠️ Skipping task beyond 5 days: "${extractTitle(page)}" (${dueDate})`);
+        continue;
+      }
+      
       const task = {
         id: page.id,
         title: extractTitle(page),
-        dueDate: extractDueDate(page),
+        dueDate: dueDate,
         url: page.url,
         assignedTo: extractAssignedPerson(page),
-        isOverdue: page.properties['Due Date']?.date?.start < todayStr,
-        isDueToday: page.properties['Due Date']?.date?.start === todayStr,
-        isUpcoming: page.properties['Due Date']?.date?.start > todayStr
+        isOverdue: dueDate < todayStr,
+        isDueToday: dueDate === todayStr,
+        isUpcoming: dueDate > todayStr
       };
       
       const personKey = task.assignedTo?.key || 'UNASSIGNED';
