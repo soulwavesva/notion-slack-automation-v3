@@ -261,15 +261,23 @@ async function getNextTaskForPerson(notion, slack, personKey) {
     
     console.log(`📊 Found ${allTasks.length} total available tasks`);
     
-    // Find tasks for this person that aren't already in Slack
+    // Find tasks for this person that aren't already in Slack AND within 5 days
     const currentSlackTasks = await getCurrentSlackTaskIds(slack);
     console.log(`📊 Current Slack task IDs: ${currentSlackTasks.length} tasks`);
     
     for (const page of allTasks) {
+      const dueDate = extractDueDate(page);
+      
+      // CLIENT-SIDE FILTER: Skip tasks beyond 5 days (same as main sync)
+      if (dueDate && new Date(dueDate) > new Date(fiveDaysStr)) {
+        console.log(`⚠️ Skipping task beyond 5 days: "${extractTitle(page)}" (${dueDate}) - beyond ${fiveDaysStr}`);
+        continue;
+      }
+      
       const task = {
         id: page.id,
         title: extractTitle(page),
-        dueDate: extractDueDate(page),
+        dueDate: dueDate,
         url: page.url,
         assignedTo: extractAssignedPerson(page),
         isOverdue: page.properties['Due Date']?.date?.start < today,
