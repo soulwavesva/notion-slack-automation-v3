@@ -110,12 +110,29 @@ export default async function handler(req, res) {
       }
     }
     
+    // Sort tasks within each person: overdue first, then due today, then upcoming by date
+    for (const [person, tasks] of Object.entries(tasksByPerson)) {
+      tasks.sort((a, b) => {
+        // Overdue tasks first
+        if (a.isOverdue && !b.isOverdue) return -1;
+        if (!a.isOverdue && b.isOverdue) return 1;
+        
+        // Then due today tasks
+        if (a.isDueToday && !b.isDueToday) return -1;
+        if (!a.isDueToday && b.isDueToday) return 1;
+        
+        // Then by due date (earliest first)
+        return new Date(a.dueDate) - new Date(b.dueDate);
+      });
+    }
+    
     // Debug: Log task distribution
     console.log('📊 Task distribution:');
     for (const [person, tasks] of Object.entries(tasksByPerson)) {
       console.log(`  ${person}: ${tasks.length} tasks`);
       tasks.forEach((task, index) => {
-        console.log(`    ${index + 1}. "${task.title}" (${task.dueDate})`);
+        const status = task.isOverdue ? 'overdue' : task.isDueToday ? 'due today' : 'upcoming';
+        console.log(`    ${index + 1}. "${task.title}" (${task.dueDate} - ${status})`);
       });
     }
     
@@ -158,12 +175,14 @@ export default async function handler(req, res) {
       }
       
       // For assigned persons, limit to 3 tasks each
-      // For unassigned, take remaining slots
+      // For unassigned, only take urgent tasks (overdue or due today) and only remaining slots
       let tasksToPost;
       if (person === 'UNASSIGNED') {
         const remainingSlots = maxTotalTasks - totalTasksPosted;
-        tasksToPost = tasks.slice(0, remainingSlots);
-        console.log(`📋 ${person}: ${remainingSlots} remaining slots, posting ${tasksToPost.length} tasks`);
+        // Only post unassigned tasks that are actually urgent (overdue or due today)
+        const urgentUnassignedTasks = tasks.filter(task => task.isOverdue || task.isDueToday);
+        tasksToPost = urgentUnassignedTasks.slice(0, remainingSlots);
+        console.log(`📋 ${person}: ${remainingSlots} remaining slots, ${urgentUnassignedTasks.length} urgent unassigned tasks, posting ${tasksToPost.length} tasks`);
       } else {
         tasksToPost = tasks.slice(0, 3);
         console.log(`📋 ${person}: posting ${tasksToPost.length} of ${tasks.length} available tasks`);
@@ -233,26 +252,30 @@ async function clearSlackChannel(slack) {
     // Get recent messages from the channel
     const history = await slack.conversations.history({
       channel: process.env.SLACK_CHANNEL_ID,
-      limit: 100
+      limit: 200 // Increased limit to catch more messages
     });
     
-    // Delete bot messages that contain task blocks
+    console.log(`📊 Found ${history.messages.length} total messages in channel`);
+    
+    // Delete ALL bot messages (not just those with blocks)
+    let deletedCount = 0;
     for (const message of history.messages) {
-      if (message.bot_id && message.blocks) {
+      if (message.bot_id) {
         try {
           await slack.chat.delete({
             channel: process.env.SLACK_CHANNEL_ID,
             ts: message.ts
           });
+          deletedCount++;
           await new Promise(resolve => setTimeout(resolve, 50)); // Rate limit protection
         } catch (deleteError) {
           // Ignore delete errors (message might be too old)
-          console.log('Could not delete message:', deleteError.message);
+          console.log(`Could not delete message: ${deleteError.message}`);
         }
       }
     }
     
-    console.log('✅ Channel cleared');
+    console.log(`✅ Deleted ${deletedCount} bot messages`);
   } catch (error) {
     console.error('Warning: Could not clear channel:', error.message);
   }
