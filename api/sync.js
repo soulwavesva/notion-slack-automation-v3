@@ -3,7 +3,7 @@ import { WebClient } from '@slack/web-api';
 
 export default async function handler(req, res) {
   try {
-    console.log('🔄 Starting Notion-Slack sync...');
+    console.log('🔄 Starting Notion-Slack sync... [v2026.01.27]');
     
     // Initialize clients
     const notion = new Client({ auth: process.env.NOTION_API_KEY });
