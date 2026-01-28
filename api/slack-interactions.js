@@ -189,11 +189,11 @@ async function getCurrentTaskCountForPerson(slack, personKey) {
 async function getNextTaskForPerson(notion, slack, personKey) {
   try {
     const today = new Date().toISOString().split('T')[0];
-    const fiveDaysFromNow = new Date();
-    fiveDaysFromNow.setDate(new Date().getDate() + 5);
-    const fiveDaysStr = fiveDaysFromNow.toISOString().split('T')[0];
+    const fourDaysFromNow = new Date();
+    fourDaysFromNow.setDate(new Date().getDate() + 4);
+    const fourDaysStr = fourDaysFromNow.toISOString().split('T')[0];
     
-    console.log(`🔍 Searching for tasks for ${personKey} from ${today} to ${fiveDaysStr}`);
+    console.log(`🔍 Searching for tasks for ${personKey} from ${today} to ${fourDaysStr}`);
     
     // Get overdue tasks
     const overdueResponse = await notion.databases.query({
@@ -231,7 +231,7 @@ async function getNextTaskForPerson(notion, slack, personKey) {
       sorts: [{ property: 'Due Date', direction: 'ascending' }]
     });
     
-    // Get upcoming tasks (next 5 days)
+    // Get upcoming tasks (next 4 days - strict 5-day limit)
     const upcomingResponse = await notion.databases.query({
       database_id: process.env.NOTION_DATABASE_ID,
       filter: {
@@ -244,7 +244,7 @@ async function getNextTaskForPerson(notion, slack, personKey) {
             property: 'Due Date',
             date: { 
               after: today,
-              on_or_before: fiveDaysStr
+              on_or_before: fourDaysStr
             }
           }
         ]
@@ -268,13 +268,13 @@ async function getNextTaskForPerson(notion, slack, personKey) {
     for (const page of allTasks) {
       const dueDate = extractDueDate(page);
       
-      // AGGRESSIVE CLIENT-SIDE FILTER: Skip tasks beyond 5 days (same as main sync)
+      // AGGRESSIVE CLIENT-SIDE FILTER: Skip tasks beyond 4 days (same as main sync)
       if (dueDate) {
         const taskDate = new Date(dueDate);
-        const maxDate = new Date(fiveDaysStr);
+        const maxDate = new Date(fourDaysStr);
         
         if (taskDate > maxDate) {
-          console.log(`⚠️ CRON FIX: Skipping task beyond 5 days: "${extractTitle(page)}" (${dueDate}) - beyond ${fiveDaysStr}`);
+          console.log(`⚠️ CRON FIX: Skipping task beyond 4 days: "${extractTitle(page)}" (${dueDate}) - beyond ${fourDaysStr}`);
           continue;
         }
       }

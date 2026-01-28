@@ -18,13 +18,15 @@ export default async function handler(req, res) {
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
     
-    // Get 5 days from now for upcoming tasks (reduced from 7 days)
-    const fiveDaysFromNow = new Date();
-    fiveDaysFromNow.setDate(today.getDate() + 5);
-    const fiveDaysStr = fiveDaysFromNow.toISOString().split('T')[0];
+    // Get 4 days from now for upcoming tasks (strict 5-day limit means < 5 days)
+    const fourDaysFromNow = new Date();
+    fourDaysFromNow.setDate(today.getDate() + 4);
+    const fourDaysStr = fourDaysFromNow.toISOString().split('T')[0];
     
-    console.log(`📅 Date range: Today=${todayStr}, 5 days from now=${fiveDaysStr}`);
-    console.log(`🔧 CRON FIX: Ensuring 5-day limit is enforced - no tasks beyond ${fiveDaysStr}`);
+    console.log(`📅 Date range: Today=${todayStr}, 4 days from now=${fourDaysStr} (strict 5-day limit)`);
+    console.log(`🔧 CRON FIX: Ensuring 5-day limit is enforced - no tasks beyond ${fourDaysStr}`);
+    console.log(`🗓️ DEBUG: Today as Date object: ${today}`);
+    console.log(`🗓️ DEBUG: 4 days from now as Date object: ${fourDaysFromNow}`);
     
     // Fetch overdue tasks (priority)
     const overdueResponse = await notion.databases.query({
@@ -62,7 +64,7 @@ export default async function handler(req, res) {
       sorts: [{ property: 'Due Date', direction: 'ascending' }]
     });
     
-    // Fetch upcoming tasks (next 5 days only)
+    // Fetch upcoming tasks (next 4 days only - strict 5-day limit)
     const upcomingResponse = await notion.databases.query({
       database_id: process.env.NOTION_DATABASE_ID,
       filter: {
@@ -75,13 +77,16 @@ export default async function handler(req, res) {
             property: 'Due Date',
             date: { 
               after: todayStr,
-              on_or_before: fiveDaysStr
+              on_or_before: fourDaysStr
             }
           }
         ]
       },
       sorts: [{ property: 'Due Date', direction: 'ascending' }]
     });
+    
+    console.log(`🔍 DEBUG: Notion query filter - after: ${todayStr}, on_or_before: ${fourDaysStr}`);
+    console.log(`🔍 DEBUG: Raw upcoming response: ${upcomingResponse.results.length} tasks`);
     
     // Combine all tasks: overdue first, then due today, then upcoming
     const allTasks = [
@@ -108,13 +113,13 @@ export default async function handler(req, res) {
     for (const page of allTasks) {
       const dueDate = extractDueDate(page);
       
-      // AGGRESSIVE CLIENT-SIDE FILTER: Skip tasks beyond 5 days (compare as dates)
+      // AGGRESSIVE CLIENT-SIDE FILTER: Skip tasks beyond 4 days (compare as dates)
       if (dueDate) {
         const taskDate = new Date(dueDate);
-        const maxDate = new Date(fiveDaysStr);
+        const maxDate = new Date(fourDaysStr);
         
         if (taskDate > maxDate) {
-          console.log(`⚠️ CRON FIX: Skipping task beyond 5 days: "${extractTitle(page)}" (${dueDate}) - beyond ${fiveDaysStr}`);
+          console.log(`⚠️ CRON FIX: Skipping task beyond 4 days: "${extractTitle(page)}" (${dueDate}) - beyond ${fourDaysStr}`);
           continue;
         }
       }
@@ -225,14 +230,14 @@ export default async function handler(req, res) {
         try {
           console.log(`📤 Posting: "${task.title}" for ${person}`);
           
-          // FINAL SAFETY CHECK: Verify task is within 5 days before posting
+          // FINAL SAFETY CHECK: Verify task is within 4 days before posting
           if (task.dueDate) {
             const taskDate = new Date(task.dueDate);
             const maxDate = new Date();
-            maxDate.setDate(maxDate.getDate() + 5);
+            maxDate.setDate(maxDate.getDate() + 4);
             
             if (taskDate > maxDate) {
-              console.log(`🚫 FINAL SAFETY: Refusing to post task beyond 5 days: "${task.title}" (${task.dueDate})`);
+              console.log(`🚫 FINAL SAFETY: Refusing to post task beyond 4 days: "${task.title}" (${task.dueDate})`);
               continue;
             }
           }
