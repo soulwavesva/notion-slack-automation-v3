@@ -268,10 +268,15 @@ async function getNextTaskForPerson(notion, slack, personKey) {
     for (const page of allTasks) {
       const dueDate = extractDueDate(page);
       
-      // CLIENT-SIDE FILTER: Skip tasks beyond 5 days (same as main sync)
-      if (dueDate && new Date(dueDate) > new Date(fiveDaysStr)) {
-        console.log(`⚠️ Skipping task beyond 5 days: "${extractTitle(page)}" (${dueDate}) - beyond ${fiveDaysStr}`);
-        continue;
+      // AGGRESSIVE CLIENT-SIDE FILTER: Skip tasks beyond 5 days (same as main sync)
+      if (dueDate) {
+        const taskDate = new Date(dueDate);
+        const maxDate = new Date(fiveDaysStr);
+        
+        if (taskDate > maxDate) {
+          console.log(`⚠️ CRON FIX: Skipping task beyond 5 days: "${extractTitle(page)}" (${dueDate}) - beyond ${fiveDaysStr}`);
+          continue;
+        }
       }
       
       const task = {

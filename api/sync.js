@@ -3,7 +3,7 @@ import { WebClient } from '@slack/web-api';
 
 export default async function handler(req, res) {
   try {
-    console.log('🔄 Starting Notion-Slack sync... [v2026.01.27]');
+    console.log('🔄 Starting Notion-Slack sync... [v2026.01.28-CRON-FIX]');
     
     // Initialize clients
     const notion = new Client({ auth: process.env.NOTION_API_KEY });
@@ -22,6 +22,7 @@ export default async function handler(req, res) {
     const fiveDaysStr = fiveDaysFromNow.toISOString().split('T')[0];
     
     console.log(`📅 Date range: Today=${todayStr}, 5 days from now=${fiveDaysStr}`);
+    console.log(`🔧 CRON FIX: Ensuring 5-day limit is enforced - no tasks beyond ${fiveDaysStr}`);
     
     // Fetch overdue tasks (priority)
     const overdueResponse = await notion.databases.query({
@@ -105,10 +106,15 @@ export default async function handler(req, res) {
     for (const page of allTasks) {
       const dueDate = extractDueDate(page);
       
-      // CLIENT-SIDE FILTER: Skip tasks beyond 5 days (compare as dates)
-      if (dueDate && new Date(dueDate) > new Date(fiveDaysStr)) {
-        console.log(`⚠️ Skipping task beyond 5 days: "${extractTitle(page)}" (${dueDate}) - beyond ${fiveDaysStr}`);
-        continue;
+      // AGGRESSIVE CLIENT-SIDE FILTER: Skip tasks beyond 5 days (compare as dates)
+      if (dueDate) {
+        const taskDate = new Date(dueDate);
+        const maxDate = new Date(fiveDaysStr);
+        
+        if (taskDate > maxDate) {
+          console.log(`⚠️ CRON FIX: Skipping task beyond 5 days: "${extractTitle(page)}" (${dueDate}) - beyond ${fiveDaysStr}`);
+          continue;
+        }
       }
       
       const task = {
