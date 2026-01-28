@@ -4,18 +4,18 @@ Automated system that syncs overdue and due-today tasks from Notion to Slack wit
 
 ## Features
 
-- **Daily Automation**: Runs at midnight EST (5 AM UTC) via Vercel cron
+- **Daily Automation**: Runs at 3 AM EST and 9:45 AM EST via GitHub Actions
 - **Person-Based Assignment**: Organizes tasks by ROB 👨‍💼, SAM 👨‍💻, ANNA 👩‍💼
-- **Task Limits**: Maximum 3 tasks per person (9 total) in Slack
+- **Task Limits**: Maximum 3 tasks per person (9 total), 5-day range limit
 - **Interactive Buttons**: Click "✅ Done" to mark tasks complete in Notion
-- **Smart Prioritization**: Shows overdue tasks first, then due today
+- **Smart Prioritization**: Shows overdue tasks first, then due today, then upcoming
 - **Auto-Cleanup**: Clears old messages before posting new ones
 
 ## API Endpoints
 
-- `/api/sync` - Manual sync trigger & daily cron job
+- `/api/sync` - Manual sync trigger & GitHub Actions endpoint
 - `/api/slack-interactions` - Handles "Done" button clicks
-- `/api/hello` - Health check endpoint
+- `/api/status` - Health check and system status
 
 ## Environment Variables
 
@@ -54,11 +54,13 @@ NODE_ENV=production
 
 ## Schedule
 
-- **Daily Cleanup**: 12:00 AM EST (midnight)
-- **Cron Schedule**: `0 5 * * *` (5 AM UTC = 12 AM EST)
+- **Morning Sync**: 3:00 AM EST (8:00 AM UTC)
+- **Cleanup Sync**: 9:45 AM EST (2:45 PM UTC)
+- **Automation**: GitHub Actions (no Vercel crons)
+- **Task Range**: Maximum 5 days in advance
 
 ## Task Status Labels
 
 - 🔴 **overdue**: Past due date
 - 🟡 **due today**: Due today
-- 📅 **Due**: Future due date
+- 📅 **upcoming**: Future due date (within 5 days)
