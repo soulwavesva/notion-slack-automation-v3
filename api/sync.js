@@ -4,6 +4,8 @@ import { WebClient } from '@slack/web-api';
 export default async function handler(req, res) {
   try {
     console.log('🔄 Starting Notion-Slack sync... [v2026.01.28-CRON-FIX]');
+    console.log(`🤖 Execution context: ${req.headers['x-vercel-cron'] ? 'CRON JOB' : 'MANUAL SYNC'}`);
+    console.log(`⏰ Current time: ${new Date().toISOString()}`);
     
     // Initialize clients
     const notion = new Client({ auth: process.env.NOTION_API_KEY });
@@ -222,6 +224,19 @@ export default async function handler(req, res) {
         
         try {
           console.log(`📤 Posting: "${task.title}" for ${person}`);
+          
+          // FINAL SAFETY CHECK: Verify task is within 5 days before posting
+          if (task.dueDate) {
+            const taskDate = new Date(task.dueDate);
+            const maxDate = new Date();
+            maxDate.setDate(maxDate.getDate() + 5);
+            
+            if (taskDate > maxDate) {
+              console.log(`🚫 FINAL SAFETY: Refusing to post task beyond 5 days: "${task.title}" (${task.dueDate})`);
+              continue;
+            }
+          }
+          
           await postTaskToSlack(slack, task);
           postedTasks.push({ 
             person, 
