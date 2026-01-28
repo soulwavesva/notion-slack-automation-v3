@@ -290,33 +290,37 @@ async function clearSlackChannel(slack) {
   try {
     console.log('🧹 Clearing existing Slack messages...');
     
-    // Get recent messages from the channel
+    // Get recent messages from the channel with higher limit
     const history = await slack.conversations.history({
       channel: process.env.SLACK_CHANNEL_ID,
-      limit: 200 // Increased limit to catch more messages
+      limit: 1000 // Much higher limit
     });
     
     console.log(`📊 Found ${history.messages.length} total messages in channel`);
     
     // Delete ALL bot messages (not just those with blocks)
     let deletedCount = 0;
+    let failedCount = 0;
+    
     for (const message of history.messages) {
       if (message.bot_id) {
         try {
+          console.log(`🗑️ Attempting to delete message: ${message.ts}`);
           await slack.chat.delete({
             channel: process.env.SLACK_CHANNEL_ID,
             ts: message.ts
           });
           deletedCount++;
-          await new Promise(resolve => setTimeout(resolve, 50)); // Rate limit protection
+          console.log(`✅ Deleted message ${message.ts}`);
+          await new Promise(resolve => setTimeout(resolve, 100)); // Longer delay
         } catch (deleteError) {
-          // Ignore delete errors (message might be too old)
-          console.log(`Could not delete message: ${deleteError.message}`);
+          failedCount++;
+          console.log(`❌ Could not delete message ${message.ts}: ${deleteError.message}`);
         }
       }
     }
     
-    console.log(`✅ Deleted ${deletedCount} bot messages`);
+    console.log(`✅ Deleted ${deletedCount} bot messages, ${failedCount} failed`);
   } catch (error) {
     console.error('Warning: Could not clear channel:', error.message);
   }
