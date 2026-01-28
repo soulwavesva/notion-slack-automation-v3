@@ -1,15 +1,5 @@
 {
   "version": 2,
-  "crons": [
-    {
-      "path": "/api/sync",
-      "schedule": "0 8 * * *"
-    },
-    {
-      "path": "/api/sync", 
-      "schedule": "45 14 * * *"
-    }
-  ],
   "functions": {
     "api/sync.js": {
       "maxDuration": 30
