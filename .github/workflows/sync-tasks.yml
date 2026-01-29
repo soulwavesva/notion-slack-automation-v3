@@ -1,12 +1,12 @@
 name: Notion-Slack Task Sync
 
 on:
-  schedule:
-    # 3 AM EST = 8 AM UTC
-    - cron: '0 8 * * *'
-    # 9:45 AM EST = 2:45 PM UTC  
-    - cron: '45 14 * * *'
-  workflow_dispatch: # Allow manual trigger
+  # schedule:
+  #   # 3 AM EST = 8 AM UTC
+  #   - cron: '0 8 * * *'
+  #   # 9:45 AM EST = 2:45 PM UTC  
+  #   - cron: '45 14 * * *'
+  workflow_dispatch: # Allow manual trigger only
 
 jobs:
   sync:
